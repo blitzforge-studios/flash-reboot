@@ -10,4 +10,6 @@ Before everything, for testing purposes, change `DungeonBlitz.swf` file with the
 
 ### Optional
 
--   [Download JPEXS](https://github.com/jindrapetrik/jpexs-decompiler/releases) to see `swf` files.
+-   [Download JPEXS](https://github.com/jindrapetrik/jpexs-decompiler/releases) to see `swf` files.[^1]
+
+[^1]: You will need Java to run JPEXS. Even on MacOS.
