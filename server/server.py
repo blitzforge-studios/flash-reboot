@@ -1,7 +1,7 @@
 ﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import socket, struct, hashlib, sys, time
+import socket, struct, hashlib, sys, time, traceback
 
 HOST = '127.0.0.1'
 PORT = 443
@@ -19,22 +19,18 @@ policy_response = b"""<?xml version="1.0"?>
   <allow-access-from domain="*" to-ports="443"/>
 </cross-domain-policy>\x00"""
 
-# Define default equipment with size modifiers
-ROGUE_ITEMS = {
-    "Offhand": {
-        "ID": 669,
-        "Scale": 0.75  # Daha küçük boyut
+# Define item types and their properties
+ITEM_TYPES = {
+    "MAGE": {
+        "MainHand": {"ID": 406, "Scale": 1.0, "Name": "StarterStaff"},
+        "OffHand": {"ID": 432, "Scale": 0.8, "Name": "StarterOrb"}
     },
-    "WholeOffhand": {
-        "ID": 670,
-        "Scale": 0.75
-    }
-}
-
-PALADIN_ITEMS = {
-    "MainHand": {
-        "ID": 1001,
-        "Scale": 0.85  # Paladin için uygun boyut
+    "ROGUE": {
+        "Offhand": {"ID": 669, "Scale": 0.75, "Name": "StarterDagger"},
+        "WholeOffhand": {"ID": 670, "Scale": 0.75, "Name": "StarterShiv"}
+    },
+    "PALADIN": {
+        "MainHand": {"ID": 1001, "Scale": 0.85, "Name": "StarterSword"}
     }
 }
 
@@ -57,21 +53,15 @@ def build_entity_packet(character, category="CharCreateUI"):
     (name, class_name, level, computed, extra1, extra2, extra3, extra4,
      hair_color, skin_color, shirt_color, pant_color, equipped_gear) = character
     
-    # Parent'ı doğru formatta ayarla
-    if category == "CharCreateUI":
-        parent = f"CharCreateUI:Starter{class_name}"
+    # Kategori bazlı parent ve entName ayarı
+    if category == "Player":
+        parent = f"Player:{class_name}"
+        ent_name = name
     else:
-        parent = f"{category}:{class_name}"
+        parent = f"CharCreateUI:Starter{class_name}"
+        ent_name = "PaperDoll"
     
-    # Boş değerleri kontrol et
-    computed = computed if computed else "Male"
-    extra1 = extra1 if extra1 else "Head01"
-    extra2 = extra2 if extra2 else "Hair01"
-    extra3 = extra3 if extra3 else "Mouth01"
-    extra4 = extra4 if extra4 else "Face01"
-    
-    # XML oluştur
-    xml = f"""<EntType EntName='PaperDoll' parent='{parent}'>
+    xml = f"""<EntType EntName='{ent_name}' parent='{parent}'>
         <Level>{level}</Level>
         <Name>{name}</Name>
         <HairColor>{hair_color}</HairColor>
@@ -84,9 +74,7 @@ def build_entity_packet(character, category="CharCreateUI"):
         <MouthSet>{extra3}</MouthSet>
         <FaceSet>{extra4}</FaceSet>
         <CustomScale>{0.8 if class_name.lower() == 'mage' else 1.0}</CustomScale>
-        <EquippedGear>
-            {equipped_gear if equipped_gear else ""}
-        </EquippedGear>
+        <EquippedGear>{equipped_gear}</EquippedGear>
     </EntType>"""
     
     return xml.replace('\n', '').replace('    ', '')
@@ -266,6 +254,29 @@ def build_game_init_packet():
     header = struct.pack(">HH", 0x1B, len(payload))
     return header + payload
 
+def build_empty_character_list():
+    buf = BitBuffer()
+    buf.write_method_4(1)  # user_id
+    buf.write_method_393(8)  # max_chars
+    buf.write_method_393(0)  # char_count (boş liste)
+    payload = buf.to_bytes()
+    header = struct.pack(">HH", 0x15, len(payload))
+    return header + payload
+
+def build_equipment_xml(class_name):
+    class_items = ITEM_TYPES.get(class_name.upper(), {})
+    if not class_items:
+        return "<Item Slot='1' ID='1001' Name='StarterSword' Scale='1.0'/>"
+    
+    xml_parts = []
+    for slot, item in class_items.items():
+        xml_parts.append(
+            f"<Item Slot='{slot}' ID='{item['ID']}' "
+            f"Name='{item['Name']}' Scale='{item['Scale']}'/>"
+        )
+    
+    return "\n".join(xml_parts)
+
 def handle_client(conn, addr):
     print("Connection from", addr)
     try:
@@ -304,10 +315,13 @@ def handle_client(conn, addr):
                 time.sleep(0.2)
 
             elif pkt_type in (0x13, 0x14):
-                print("Got authentication packet (0x13/0x14). Parsing...")
-                pkt = build_login_character_list_bitpacked()
+                print("Got authentication packet (0x13/0x14)")
+                if len(characters) == 0:
+                    pkt = build_empty_character_list()
+                else:
+                    pkt = build_login_character_list_bitpacked()
                 conn.sendall(pkt)
-                print("Sent login character list (0x15):", pkt.hex())
+                print("Sent character list (0x15):", pkt.hex())
                 time.sleep(0.2)
 
             elif pkt_type == 0x17:
@@ -328,22 +342,7 @@ def handle_client(conn, addr):
                     pant_color = br.read_bits(24)
 
                     # Sınıfa göre varsayılan donanımı ayarla
-                    if class_name.lower() == "mage":
-                        default_gear = """
-                            <Item Slot='MainHand' ID='1002' Scale='1.0'/>
-                            <Item Slot='OffHand' ID='1003' Scale='0.8'/>
-                        """
-                    elif class_name.lower() == "rogue":
-                        default_gear = f"""
-                            <Item Slot='Offhand' ID='{ROGUE_ITEMS["Offhand"]["ID"]}' Scale='{ROGUE_ITEMS["Offhand"]["Scale"]}'/>
-                            <Item Slot='WholeOffhand' ID='{ROGUE_ITEMS["WholeOffhand"]["ID"]}' Scale='{ROGUE_ITEMS["WholeOffhand"]["Scale"]}'/>
-                        """
-                    elif class_name.lower() == "paladin":
-                        default_gear = f"""
-                            <Item Slot='MainHand' ID='{PALADIN_ITEMS["MainHand"]["ID"]}' Scale='{PALADIN_ITEMS["MainHand"]["Scale"]}'/>
-                        """
-                    else:  # Mage ve diğer sınıflar için
-                        default_gear = "<Item Slot='1' ID='1001' Name='StarterSword' Scale='1.0'/>"
+                    default_gear = build_equipment_xml(class_name)
 
                     # Yeni karakter oluştur
                     new_char = (
@@ -398,34 +397,48 @@ def handle_client(conn, addr):
 
             elif pkt_type == 0x16:
                 print("Got character select packet (0x16).")
-                
-                # Önce karakter bilgilerini gönder
-                for char in characters:
-                    br = BitReader(data[4:])  # Skip the header
+                try:
+                    br = BitReader(data[4:])
                     selected_name = br.read_string()
-                    if char[0] == selected_name:
-                        paperdoll_xml = build_entity_packet(char, category="Player")
+                    print(f"Selected character: {selected_name}")
+                    
+                    selected_char = None
+                    for char in characters:
+                        if char[0] == selected_name:
+                            selected_char = char
+                            break
+                    
+                    if selected_char:
+                        # 1. Karakter seçim onayı
+                        ack_pkt = struct.pack(">HH", 0x16, 0)
+                        conn.sendall(ack_pkt)
+                        print("Sent character select ack (0x16)")
+                        time.sleep(0.1)
+
+                        # 2. Enter game paketi
+                        enter_packet = build_enter_game_packet()
+                        conn.sendall(enter_packet)
+                        print("Sent enter game (0x1A)")
+                        time.sleep(0.1)
+
+                        # 3. Game init paketi
+                        init_pkt = build_game_init_packet()
+                        conn.sendall(init_pkt)
+                        print("Sent game init (0x1B)")
+                        time.sleep(0.1)
+
+                        # 4. Paperdoll verisi en son
+                        paperdoll_xml = build_entity_packet(selected_char, category="Player")
                         buf = BitBuffer()
                         buf.write_utf_string(paperdoll_xml)
                         pd_payload = buf.to_bytes()
                         pd_pkt = struct.pack(">HH", 0x7C, len(pd_payload)) + pd_payload
                         conn.sendall(pd_pkt)
-                        print("Sent paperdoll update (0x7C)")
-                        time.sleep(0.1)
-                        break
-                
-                # Sonra diğer paketleri gönder
-                ack_pkt = struct.pack(">HH", 0x16, 0)
-                conn.sendall(ack_pkt)
-                time.sleep(0.1)
-                
-                enter_packet = build_enter_game_packet()
-                conn.sendall(enter_packet)
-                time.sleep(0.1)
-                
-                init_pkt = build_game_init_packet()
-                conn.sendall(init_pkt)
-                time.sleep(0.1)
+                        print("Sent paperdoll data (0x7C)")
+                        
+                except Exception as e:
+                    print(f"Error in character select: {e}")
+                    traceback.print_exc()
 
             elif pkt_type == 0x19:
                 print("Got packet type 0x19. Request for character details.")
