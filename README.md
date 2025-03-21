@@ -1,6 +1,7 @@
 # Dungeon Blitz - Preservation Files
 
-This repository holds data of Dungeon Blitz Flash game.
+This repository holds data of Dungeon Blitz Flash game. To [download](https://github.com/BlitzForge-Studios/server/releases/tag/static-data) all data, please visit releases.
+
 Before everything, for testing purposes, change `DungeonBlitz.swf` file with the one on the releases. So you can redirect server to correct ports to connect with settled on [`config.js`](src/config.js) file.
 
 ## Play the Game
@@ -10,7 +11,8 @@ Before everything, for testing purposes, change `DungeonBlitz.swf` file with the
 
 ### Run Server
 
-You can use `npm run start` or `node main.js`. You can also use:
+-   Open terminal terminal
+-   Use `npm run start` or `node main.js`. You can also use:
 
 ```sh
 node .
