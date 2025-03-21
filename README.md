@@ -1,15 +1,23 @@
-# Dungeon Blitz - Preservation Files
+# Flash Debugger
 
-This repository holds data of Dungeon Blitz Flash game.
-Before everything, for testing purposes, change `DungeonBlitz.swf` file with the one on the folder. So you can redirect server to correct ports to connect.
+> Thanks to **cold.ic** for giving us the Flash debugger files.
 
-## Play the Game
+It works with FlashPoint. Make sure to drop this exe file into the directory:
 
--   [Download Flash Point](https://flashpointarchive.org/downloads) to run game.
-    -   Launch command: http://db.bmgstatic.com/p/cbv/DungeonBlitz.swf?fv=cbq&gv=cbv
+```sh
+FPSoftware\Flash\
+```
 
-### Optional
+And replace the launch command with:
 
--   [Download JPEXS](https://github.com/jindrapetrik/jpexs-decompiler/releases) to see `swf` files.[^1]
+```sh
+FPSoftware\Flash\flashplayer32_0r0_465_sa_debug.exe
+```
 
-[^1]: You will need Java to run JPEXS. Even on MacOS.
+Also make sure to drop `mm.cfg` in **`%USERPROFILE%`** directory as that turns on debugging in Flash.
+
+Then, read the logs in real time with PowerShell:
+
+```sh
+get-content "$env:APPDATA\Macromedia\Flash Player\Logs\flashlog.txt" -wait -tail 1
+```
