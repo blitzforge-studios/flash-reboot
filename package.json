@@ -1,0 +1,17 @@
+{
+  "name": "dungeon-blitz-server",
+  "version": "1.0.0",
+  "description": "A server for the Dungeon Blitz game, handling client connections and game logic.",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "start": "node main.js",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "dependencies": {
+    "net": "^1.0.2",
+    "crypto": "^1.0.1"
+  },
+  "author": "İbrahim Güneş",
+  "license": "MIT"
+}
