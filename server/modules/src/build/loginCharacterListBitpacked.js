@@ -1,3 +1,8 @@
+import { Buffer } from "node:buffer";
+
+import { characters } from "../config.js";
+import { BitBuffer } from "../classes/BitBuffer.js";
+
 function buildLoginCharacterListBitpacked() {
     const buf = new BitBuffer();
     const userId = 1;
