@@ -6,7 +6,7 @@ Before everything, for testing purposes, change `DungeonBlitz.swf` file with the
 ## Play the Game
 
 -   [Download Flash Point](https://flashpointarchive.org/downloads) to run game.
-    -   Launch command[^1]: http://db.bmgstatic.com/p/cbv/DungeonBlitz.swf?fv=cbq&gv=cbv
+    -   Launch command:[^1] http://db.bmgstatic.com/p/cbv/DungeonBlitz.swf?fv=cbq&gv=cbv
 
 ### Run Server
 
