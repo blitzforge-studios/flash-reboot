@@ -1,7 +1,7 @@
 # Dungeon Blitz - Preservation Files
 
 This repository holds data of Dungeon Blitz Flash game.
-Before everything, for testing purposes, change `DungeonBlitz.swf` file with the one on the releases. So you can redirect server to correct ports to connect with settled on [`config.js`](src\config.js) file.
+Before everything, for testing purposes, change `DungeonBlitz.swf` file with the one on the releases. So you can redirect server to correct ports to connect with settled on [`config.js`](src/config.js) file.
 
 ## Play the Game
 
