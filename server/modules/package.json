@@ -5,7 +5,7 @@
   "main": "main.js",
   "type": "module",
   "scripts": {
-    "start": "sudo node main.js",
+    "start": "node main.js",
     "test": "echo \"No tests specified\" && exit 0"
   },
   "dependencies": {

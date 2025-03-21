@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { Socket } from "node:net";
 
-import { POLICY_RESPONSE } from "../config.js";
+import { POLICY_RESPONSE, characters } from "../config.js";
 import {
     buildEnterGamePacket,
     buildGameInitPacket,
@@ -13,8 +13,56 @@ import { BitReader } from "../classes/BitReader.js";
 import { BitBuffer } from "../classes/BitBuffer.js";
 import { buildEntityPacket } from "../build/entityPacket.js";
 
+// Paket gönderme işlemini bir fonksiyona çıkaralım
+function sendPacketSequence(socket, char) {
+    return new Promise((resolve) => {
+        // 1. Önce character acknowledgment
+        const ackPkt = Buffer.alloc(4);
+        ackPkt.writeUInt16BE(0x16, 0);
+        ackPkt.writeUInt16BE(0, 2);
+        socket.write(ackPkt);
+        console.log("Sent character select acknowledgment (0x16)");
+
+        // 2. Enter game packet
+        setTimeout(() => {
+            const enterPacket = buildEnterGamePacket();
+            socket.write(enterPacket);
+            console.log("Sent enter game packet (0x1A)");
+
+            // 3. Game init packet
+            setTimeout(() => {
+                const initPkt = buildGameInitPacket();
+                socket.write(initPkt);
+                console.log("Sent game init packet (0x1B)");
+
+                // 4. Entity/Paperdoll packet
+                setTimeout(() => {
+                    const entityXml = buildEntityPacket(char, "Player");
+                    const buf = new BitBuffer();
+                    buf.writeUtfString(entityXml);
+                    const payload = buf.toBytes();
+
+                    const pdPktHeader = Buffer.alloc(4);
+                    pdPktHeader.writeUInt16BE(0x7c, 0);
+                    pdPktHeader.writeUInt16BE(payload.length, 2);
+
+                    const finalPacket = Buffer.concat([pdPktHeader, payload]);
+                    socket.write(finalPacket);
+                    console.log("Sent entity packet (0x7C)");
+
+                    resolve();
+                }, 300);
+            }, 300);
+        }, 300);
+    });
+}
+
 function handleClient(socket = new Socket()) {
     console.log("Connection from", socket.remoteAddress);
+
+    socket.on("error", (err) => {
+        console.error("Socket error:", err);
+    });
 
     socket.on("data", (data) => {
         if (data.includes(Buffer.from("<policy-file-request/>"))) {
@@ -212,45 +260,32 @@ function handleClient(socket = new Socket()) {
                     console.log("Error parsing create character packet:", e);
                 }
             } else if (pktType === 0x16) {
-                console.log("Got character select packet (0x16).");
+                console.log("Got character select packet (0x16)");
 
-                // First send character information
-                const br = new BitReader(data.subarray(4)); // Skip the header
+                const br = new BitReader(data.subarray(4));
                 const selectedName = br.readString();
 
-                for (const char of characters) {
-                    if (char[0] === selectedName) {
-                        const paperdollXml = buildEntityPacket(char, "Player");
-                        const buf = new BitBuffer();
-                        buf.writeUtfString(paperdollXml);
-                        const pdPayload = buf.toBytes();
-                        const pdPktHeader = Buffer.alloc(4);
-                        pdPktHeader.writeUInt16BE(0x7c, 0);
-                        pdPktHeader.writeUInt16BE(pdPayload.length, 2);
-                        const pdPkt = Buffer.concat([pdPktHeader, pdPayload]);
-                        socket.write(pdPkt);
-                        console.log("Sent paperdoll update (0x7C)");
-                        break;
+                // Karakteri bul
+                const selectedChar = characters.find(
+                    (char) => char[0] === selectedName
+                );
+
+                if (selectedChar) {
+                    try {
+                        sendPacketSequence(socket, selectedChar).catch(
+                            (err) => {
+                                console.error(
+                                    "Error sending packet sequence:",
+                                    err
+                                );
+                            }
+                        );
+                    } catch (err) {
+                        console.error("Error sending packet sequence:", err);
                     }
+                } else {
+                    console.log(`Character '${selectedName}' not found`);
                 }
-
-                // Then send other packets
-                setTimeout(() => {
-                    const ackPkt = Buffer.alloc(4);
-                    ackPkt.writeUInt16BE(0x16, 0);
-                    ackPkt.writeUInt16BE(0, 2);
-                    socket.write(ackPkt);
-
-                    setTimeout(() => {
-                        const enterPacket = buildEnterGamePacket();
-                        socket.write(enterPacket);
-
-                        setTimeout(() => {
-                            const initPkt = buildGameInitPacket();
-                            socket.write(initPkt);
-                        }, 100);
-                    }, 100);
-                }, 100);
             } else if (pktType === 0x19) {
                 console.log(
                     "Got packet type 0x19. Request for character details."
@@ -344,10 +379,6 @@ function handleClient(socket = new Socket()) {
 
     socket.on("close", () => {
         console.log("Client disconnected.");
-    });
-
-    socket.on("error", (err) => {
-        console.log("Socket error:", err);
     });
 }
 

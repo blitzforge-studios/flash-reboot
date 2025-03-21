@@ -1,29 +1,15 @@
-function buildEnterGamePacket() {
-    const worldId = 1;
-    const x = 100,
-        y = 200,
-        z = 0;
-    const instanceId = 1;
+import { Buffer } from "node:buffer";
 
-    const payload = Buffer.alloc(14);
-    let offset = 0;
-
-    payload.writeUInt16BE(worldId, offset);
-    offset += 2;
-    payload.writeInt32BE(x, offset);
-    offset += 4;
-    payload.writeInt32BE(y, offset);
-    offset += 4;
-    payload.writeInt32BE(z, offset);
-    offset += 4;
-    payload.writeUInt16BE(instanceId, offset);
-
-    const header = Buffer.alloc(4);
-
-    header.writeUInt16BE(0x1a, 0);
-    header.writeUInt16BE(payload.length, 2);
-
-    return Buffer.concat([header, payload]);
+export function buildEnterGamePacket() {
+    // Eğer özel bir payload varsa, onu oluşturun. Örnekte boş payload kullanılıyor.
+    const payload = Buffer.alloc(0);
+    // Header (4 bayt) + payload uzunluğu kadar buffer ayırın.
+    const buf = Buffer.alloc(4 + payload.length);
+    // Packet tipini (ör: 0x1A) header'a yazın.
+    buf.writeUInt16BE(0x1a, 0);
+    // Payload uzunluğunu header'ın devamına yazın.
+    buf.writeUInt16BE(payload.length, 2);
+    // Eğer payload varsa, buffer'a kopyalayın.
+    // payload.copy(buf, 4);
+    return buf;
 }
-
-export { buildEnterGamePacket };

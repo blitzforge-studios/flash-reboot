@@ -1,5 +1,5 @@
 const HOST = "127.0.0.1";
-const PORT = 443;
+const PORT = 8080;
 
 let characters = [];
 
@@ -7,7 +7,7 @@ const POLICY_RESPONSE = Buffer.from(
     `<?xml version="1.0"?>
 <!DOCTYPE cross-domain-policy SYSTEM "http://www.adobe.com/xml/dtds/cross-domain-policy.dtd">
 <cross-domain-policy>
-  <allow-access-from domain="*" to-ports="443"/>
+  <allow-access-from domain="*" to-ports="8080"/>
 </cross-domain-policy>\0`,
     "utf8"
 );
