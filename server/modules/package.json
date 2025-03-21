@@ -2,10 +2,10 @@
   "name": "dungeon-blitz-server",
   "version": "1.0.0",
   "description": "A server for the Dungeon Blitz game, handling client connections and game logic.",
-  "main": "src/main.js",
+  "main": "main.js",
   "type": "module",
   "scripts": {
-    "start": "node src/main.js",
+    "start": "sudo node main.js",
     "test": "echo \"No tests specified\" && exit 0"
   },
   "dependencies": {
