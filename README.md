@@ -1,24 +1,9 @@
-# Dungeon Blitz - Preservation Files
+# Modified Files
 
-This repository holds data of Dungeon Blitz Flash game.
-Before everything, for testing purposes, change `DungeonBlitz.swf` file with the one on the releases. So you can redirect server to correct ports to connect with settled on [`config.js`](src\config.js) file.
+### DungeonBlitz.swf
 
-## Play the Game
+-   Changed IP address to `127.0.0.1` for local connection.[^1]
+-   A few tracers for debugging
+-   Changed `method_1722` on **LinkUpdater** for character paperdoll to show player in the character selection screen
 
--   [Download Flash Point](https://flashpointarchive.org/downloads) to run game.
-    -   Launch command[^1]: http://db.bmgstatic.com/p/cbv/DungeonBlitz.swf?fv=cbq&gv=cbv
-
-### Run Server
-
-You can use `npm run start` or `node main.js`. You can also use:
-
-```sh
-node .
-```
-
-### Optional
-
--   [Download JPEXS](https://github.com/jindrapetrik/jpexs-decompiler/releases) to see `swf` files.[^2]
-
-[^1]: You have to set this on Flash's launch command.
-[^2]: You will need Java to run JPEXS. Even on MacOS.
+[^1]: You can use your own **DungeonBlitz.swf** if you want just make sure you change the IP address to `127.0.0.1` in `LinkUpdater.as`
