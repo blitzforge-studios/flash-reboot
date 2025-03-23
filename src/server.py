@@ -1,6 +1,6 @@
 import socket
-from handlers.handle_client import handle_client
-from config import PORT, HOST
+from .handlers.handle_client import handle_client
+from .config import PORT, HOST
 import threading
 
 def start_server():

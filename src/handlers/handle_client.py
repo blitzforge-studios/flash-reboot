@@ -1,13 +1,14 @@
 import time
-from config import POLICY_RESPONSE, characters, ROGUE_ITEMS, PALADIN_ITEMS
+from ..config import POLICY_RESPONSE, characters, ROGUE_ITEMS, PALADIN_ITEMS
 from ..classes.bit_reader import BitReader
 from ..classes.bit_buffer import BitBuffer
 from ..build.export_builds import (
+    build_handshake_response,
     build_enter_game_packet,
     build_game_init_packet,
-    build_handshake_response,
+    build_login_character_list_bitpacked,
     build_login_challenge,
-    build_login_character_list_bitpacked
+    build_paperdoll_packet
 )
 from ..build.entity_packet import build_entity_packet
 
