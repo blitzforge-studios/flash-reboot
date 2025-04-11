@@ -413,7 +413,7 @@ def handle_client(conn, addr):
 
 
 
-            # im honestly not sure what these packets do
+            
             elif pkt_type == 0x16:
 
                 payload = data[4:]
