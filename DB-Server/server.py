@@ -2,21 +2,24 @@
 # -*- coding: utf-8 -*-
 
 import socket, struct, hashlib, sys, time
+import json
+import os
+from Character import (
+    make_character_dict_from_tuple,
+    build_login_character_list_bitpacked,
+    build_paperdoll_packet,
+    load_characters,
+    save_characters
+)
+from bitreader import BitReader
+characters = load_characters()
+from BitUtils import BitBuffer
 
 HOST = '127.0.0.1'
 PORT = 443
 
-# Global storage for characters.
-# Each entry is a tuple:
-# (name, class_name, level, computed, extra1, extra2, extra3, extra4, hair_color, skin_color, shirt_color, pant_color)
-characters = []
-
-# The Flash policy file
-policy_response = b"""<?xml version="1.0"?>
-<!DOCTYPE cross-domain-policy SYSTEM="http://www.adobe.com/xml/dtds/cross-domain-policy.dtd">
-<cross-domain-policy>
-  <allow-access-from domain="*" to-ports="443"/>
-</cross-domain-policy>\x00"""
+transfer_token = 1
+PKTTYPE_WELCOME = 0x10
 
 def build_handshake_response(session_id):
     session_id_bytes = session_id.to_bytes(2, 'big')
@@ -27,233 +30,106 @@ def build_handshake_response(session_id):
     header = struct.pack(">HH", 0x12, len(payload))
     return header + payload
 
-def build_login_challenge(challenge_str):
-    cbytes = challenge_str.encode('utf-8')
-    payload = struct.pack(">H", len(cbytes)) + cbytes
-    header = struct.pack(">HH", 0x13, len(payload))
-    return header + payload
+###################################################################
 
-def build_entity_packet(character, category="CharCreateUI"):
-    """
-    Build an entity packet from a character tuple with a configurable category.
-
-    Parameters:
-        character: Tuple containing character data.
-        category: String determining the parent prefix ("CharCreateUI" or "Player").
-
-    The character tuple format:
-      (name, class_name, level, computed, extra1, extra2, extra3, extra4,
-       hair_color, skin_color, shirt_color, pant_color)
-    """
-    (name, class_name, level, computed, extra1, extra2, extra3, extra4,
-     hair_color, skin_color, shirt_color, pant_color) = character
-
-    # Set parent based on category
-    if category == "CharCreateUI":
-        parent = "CharCreateUI:Starter" + class_name
-    elif category == "Player":
-        parent = "Player:" + class_name
-    else:
-        parent = category + ":" + class_name
-
-    # Choose a scale factor (based on client defaults)
-    if class_name.lower() == "paladin":
-        scale = 0.85
-    elif class_name.lower() == "mage":
-        scale = 0.8
-    elif class_name.lower() == "rogue":
-        scale = 0.81
-    else:
-        scale = 1.0
-
-    # Build the XML string
-    xml = "<EntType EntName='PaperDoll' parent='{}'>".format(parent)
-    xml += "<HairColor>{}</HairColor>".format(hair_color)
-    xml += "<SkinColor>{}</SkinColor>".format(skin_color)
-    xml += "<ShirtColor>{}</ShirtColor>".format(shirt_color)
-    xml += "<PantColor>{}</PantColor>".format(pant_color)
-    xml += "<GenderSet>{}</GenderSet>".format(computed if computed != "" else "Male")
-    xml += "<HeadSet>{}</HeadSet>".format(extra1)
-    xml += "<HairSet>{}</HairSet>".format(extra2)
-    xml += "<MouthSet>{}</MouthSet>".format(extra3)
-    xml += "<FaceSet>{}</FaceSet>".format(extra4)
-    xml += "<CustomScale>{}</CustomScale>".format(scale)
-    xml += "<EquippedGear></EquippedGear>"
-    xml += "</EntType>"
-    print("Built entity XML:", xml)
-    return xml
-
-#
-# ----------------------- BIT-PACKED READING -----------------------
-#
-
-class BitReader:
-    def __init__(self, data: bytes):
-        self.data = data
-        self.bit_index = 0
-
-    def read_bits(self, count: int) -> int:
-        result = 0
-        for _ in range(count):
-            byte_index = self.bit_index // 8
-            bit_offset = 7 - (self.bit_index % 8)
-            if byte_index >= len(self.data):
-                raise ValueError("Not enough data to read")
-            bit = (self.data[byte_index] >> bit_offset) & 1
-            result = (result << 1) | bit
-            self.bit_index += 1
-        return result
-
-    def align_to_byte(self):
-        remainder = self.bit_index % 8
-        if remainder != 0:
-            self.bit_index += (8 - remainder)
-
-    def read_string(self) -> str:
-        self.align_to_byte()
-        length = self.read_bits(16)
-        result_bytes = bytearray()
-        for _ in range(length):
-            result_bytes.append(self.read_bits(8))
-        try:
-            return result_bytes.decode('utf-8')
-        except UnicodeDecodeError:
-            return result_bytes.decode('latin1')
-
-    def read_method_4(self) -> int:
-        n = self.read_bits(4)
-        n = (n + 1) << 1
-        return self.read_bits(n)
-
-    def read_method_393(self) -> int:
-        return self.read_bits(8)
-
-    def read_method_6(self, bit_count: int) -> int:
-        return self.read_bits(bit_count)
-
-#
-# ----------------------- BIT-PACKED WRITING -----------------------
-#
-
-class BitBuffer:
-    def __init__(self):
-        self.bits = []
-
-    def _append_bits(self, value, bit_count):
-        for i in reversed(range(bit_count)):
-            bit = (value >> i) & 1
-            self.bits.append(bit)
-
-    def write_utf_string(self, text):
-        if text is None:
-            text = ""
-        length = len(text)
-        self._append_bits((length >> 8) & 0xFF, 8)
-        self._append_bits(length & 0xFF, 8)
-        for ch in text:
-            self._append_bits(ord(ch) & 0xFF, 8)
-
-    def write_method_4(self, val):
-        if val == 0:
-            _loc1_ = 0
-            _loc2_ = 2
-            self._append_bits(_loc1_, 4)
-            self._append_bits(val, _loc2_)
-            return
-        n = val.bit_length()
-        if n % 2 != 0:
-            n += 1
-        _loc1_ = (n >> 1) - 1
-        self._append_bits(_loc1_, 4)
-        self._append_bits(val, n)
-
-    def write_method_393(self, val):
-        self._append_bits(val & 0xFF, 8)
-
-    def write_method_6(self, val, bit_count):
-        self._append_bits(val, bit_count)
-
-    def write_method_13_string(self, text):
-        length = len(text)
-        self.write_method_4(length)
-        for ch in text:
-            self._append_bits(ord(ch) & 0xFF, 8)
-
-    def to_bytes(self):
-        while len(self.bits) % 8 != 0:
-            self.bits.append(0)
-        out = bytearray()
-        for i in range(0, len(self.bits), 8):
-            b = 0
-            for bit in self.bits[i:i+8]:
-                b = (b << 1) | bit
-            out.append(b)
-        return bytes(out)
-
-def build_login_character_list_bitpacked():
+def build_enter_world_packet(
+    transfer_token: int,
+    old_level_id: int,
+    old_swf: str,
+    has_old_coord: bool,
+    old_x: int,
+    old_y: int,
+    old_flashvars: str,
+    user_id: int,
+    new_level_swf: str,
+    new_map_lvl: int,
+    new_base_lvl: int,
+    new_internal: str,
+    new_moment: str,
+    new_alter: str,
+    new_is_inst: bool
+) -> bytes:
     buf = BitBuffer()
-    user_id = 1
-    max_chars = 8
-    char_count = len(characters)
 
+    # 1) transferToken + oldLevelId
+    buf.write_method_4(transfer_token)
+    buf.write_method_4(old_level_id)
+
+    # 2) old SWF path
+    buf.write_utf_string(old_swf)
+
+    # 3) old coords?
+    buf._append_bits(1 if has_old_coord else 0, 1)
+    if has_old_coord:
+        buf.write_method_4(old_x)
+        buf.write_method_4(old_y)
+
+    # 4) old flashVars
+    buf.write_utf_string(old_flashvars)
+
+    # 5) userID
     buf.write_method_4(user_id)
-    buf.write_method_393(max_chars)
-    buf.write_method_393(char_count)
 
-    for char in characters:
-        (name, class_name, level, computed, extra1, extra2, extra3, extra4,
-         hair_color, skin_color, shirt_color, pant_color) = char
-        buf.write_utf_string(name)
-        buf.write_utf_string(class_name)
-        buf.write_method_6(level, 6)
-        buf.write_method_6(hair_color, 24)
-        buf.write_method_6(pant_color, 24)
-        buf.write_method_6(shirt_color, 24)
-        buf.write_method_6(skin_color, 24)
-        buf.write_utf_string(extra4)
-        buf.write_utf_string(computed)
-        buf.write_utf_string(extra2)
-        buf.write_utf_string(extra1)
-        buf.write_utf_string(extra3)
-        for i in range(6):
-            buf.write_method_6(0, 11)
+    # 6) new SWF path
+    buf.write_utf_string(new_level_swf)
+
+    # 7) map/base levels (6 bits each)
+    buf.write_method_6(new_map_lvl, 6)
+    buf.write_method_6(new_base_lvl, 6)
+
+    # 8) new strings
+    buf.write_utf_string(new_internal)
+    buf.write_utf_string(new_moment)
+    buf.write_utf_string(new_alter)
+
+    # 9) new isInstanced
+    buf._append_bits(1 if new_is_inst else 0, 1)
+    buf.align_to_byte()
+
     payload = buf.to_bytes()
-    header = struct.pack(">HH", 0x15, len(payload))
-    return header + payload
+    return struct.pack(">HH", 0x21, len(payload)) + payload
 
-def build_paperdoll_packet(character):
-    """Build a paperdoll packet for packet type 0x7C."""
+clientEntID = 500
+clientEntName = "Frosby"
+characterLevel = 20
+MAX_CHAR_LEVEL_BITS = 1
+skinID = 1
+currGold = 100
+currGems = 100
+
+#TODO.....
+     #WELCOME packet
+##############################################################
+def build_welcome_packet():
     buf = BitBuffer()
-    name, class_name, level, computed, extra1, extra2, extra3, extra4, \
-    hair_color, skin_color, shirt_color, pant_color = character
-    buf.write_utf_string(name)
-    buf.write_utf_string(class_name)
-    buf.write_utf_string(computed)
-    buf.write_utf_string(extra1)
-    buf.write_utf_string(extra2)
-    buf.write_utf_string(extra3)
-    buf.write_utf_string(extra4)
-    buf.write_method_6(hair_color, 24)
-    buf.write_method_6(skin_color, 24)
-    buf.write_method_6(shirt_color, 24)
-    buf.write_method_6(pant_color, 24)
+
+    # 1) clientEntID
+    buf.write_method_4(clientEntID)
+
+  # 2) clientEntName — writeUTF (2-byte length + UTF-8), then align to the next byte
+    buf.write_utf_string(clientEntName)
+    buf.align_to_byte()
+
+    # 3) characterLevel
+    buf.write_method_6(characterLevel, MAX_CHAR_LEVEL_BITS)
+
+    # 4) skin/class ID
+    buf.write_method_4(skinID)
+
+    # 5) currGold
+    buf.write_method_4(currGold)
+
+    # 6) currGems
+    buf.write_method_4(currGems)
+
+    # 7) **hasOptions flag** (1 bit). 0 = skip all the appearance data
+    buf._append_bits(0, 1)
+    buf.align_to_byte()
+
+    # … now continue with master‐ranks, world code, bonusLevels, pet list …
+
     payload = buf.to_bytes()
-    header = struct.pack(">HH", 0x7C, len(payload))
-    return header + payload
-
-def build_enter_game_packet():
-    world_id = 1
-    x, y, z = 100, 200, 0
-    instance_id = 1
-    payload = struct.pack(">HiiiH", world_id, x, y, z, instance_id)
-    header = struct.pack(">HH", 0x1A, len(payload))
-    return header + payload
-
-def build_game_init_packet():
-    map_id, char_id = 1, 1
-    start_x, start_y = 100, 200
-    payload = struct.pack(">HHII", map_id, char_id, start_x, start_y)
-    header = struct.pack(">HH", 0x1B, len(payload))
+    header  = struct.pack(">HH", PKTTYPE_WELCOME, len(payload))
     return header + payload
 
 def handle_client(conn, addr):
@@ -263,11 +139,6 @@ def handle_client(conn, addr):
             data = conn.recv(4096)
             if not data:
                 break
-
-            if b"<policy-file-request/>" in data:
-                print("Flash policy request received. Sending policy XML.")
-                conn.sendall(policy_response)
-                continue
 
             hex_data = data.hex()
             print("Received raw data:", hex_data)
@@ -287,18 +158,12 @@ def handle_client(conn, addr):
                 resp = build_handshake_response(session_id)
                 conn.sendall(resp)
                 print("Sent handshake response (0x12):", resp.hex())
-                time.sleep(0.2)
-                challenge_packet = build_login_challenge("CHALLENGE")
-                conn.sendall(challenge_packet)
-                print("Sent login challenge (0x13):", challenge_packet.hex())
-                time.sleep(0.2)
 
             elif pkt_type in (0x13, 0x14):
-                print("Got authentication packet (0x13/0x14). Parsing...")
-                pkt = build_login_character_list_bitpacked()
+                print("Got auth packet (0x14). Sending character list…")
+                pkt = build_login_character_list_bitpacked(characters)
                 conn.sendall(pkt)
                 print("Sent login character list (0x15):", pkt.hex())
-                time.sleep(0.2)
 
             elif pkt_type == 0x17:
                 print("Got character creation packet (0x17). Parsing creation data...")
@@ -307,120 +172,109 @@ def handle_client(conn, addr):
                     br = BitReader(payload)
                     name = br.read_string()
                     class_name = br.read_string()
-                    computed = br.read_string()
-                    extra1 = br.read_string()
-                    extra2 = br.read_string()
-                    extra3 = br.read_string()
-                    extra4 = br.read_string()
+                    level_dummy = 1  # level is fixed at creation
+                    gender = br.read_string()
+                    head = br.read_string()
+                    hair = br.read_string()
+                    mouth = br.read_string()
+                    face = br.read_string()
                     hair_color = br.read_bits(24)
                     skin_color = br.read_bits(24)
                     shirt_color = br.read_bits(24)
                     pant_color = br.read_bits(24)
+                    # equipped_gear placeholder, will be handled by make_character_dict...
+                    equipped_gear = None
+                    # Build the raw-character tuple exactly as make_character_dict expects
+                    character_tuple = (
+                        name,
+                        class_name,
+                        level_dummy,
+                        gender,
+                        head,
+                        hair,
+                        mouth,
+                        face,
+                        hair_color,
+                        skin_color,
+                        shirt_color,
+                        pant_color,
+                        equipped_gear
+                    )
                 except Exception as e:
-                    print("Error parsing create character packet:", e)
+                    print("Error parsing 0x17 packet:", e)
+                    # Re-send the list so client doesn’t hang
+                    conn.sendall(build_login_character_list_bitpacked(characters))
                     continue
 
-                print("Parsed Character Creation Packet:")
-                print("  Name:     ", name)
-                print("  ClassName:", class_name)
-                print("  Extra:    ", [computed, extra1, extra2, extra3, extra4])
-                print("  Colors:   ", [hair_color, skin_color, shirt_color, pant_color])
+                # Convert tuple → full dict (fills in gearList, defaults, etc.)
+                char_dict = make_character_dict_from_tuple(character_tuple)
+                # Append + persist
+                characters.append(char_dict)
+                save_characters(characters)
+                print(f"Created new char '{name}', class='{class_name}' and saved to JSON.")
 
-                new_char = (name, class_name, 1, computed, extra1, extra2, extra3, extra4,
-                            hair_color, skin_color, shirt_color, pant_color)
-                characters.append(new_char)
-                print(f"Created new char: userID=1, name='{name}', class='{class_name}'")
+                # Send updated character list (0x15)
+                list_pkt = build_login_character_list_bitpacked(characters)
+                conn.sendall(list_pkt)
+                print("Sent updated login-character-list (0x15):", list_pkt.hex())
 
-                pkt = build_login_character_list_bitpacked()
-                conn.sendall(pkt)
-                print("Sent updated login character list (0x15):", pkt.hex())
-                time.sleep(0.2)
-
-                ack_pkt = struct.pack(">HH", 0x16, 0)
-                conn.sendall(ack_pkt)
-                print("Sent character select acknowledgment (0x16):", ack_pkt.hex())
-                time.sleep(0.2)
-
-                enter_packet = build_enter_game_packet()
-                conn.sendall(enter_packet)
-                print("Sent enter game packet (0x1A):", enter_packet.hex())
-                time.sleep(0.2)
-
-                init_pkt = build_game_init_packet()
-                conn.sendall(init_pkt)
-                print("Sent game init packet (0x1B):", init_pkt.hex())
-                time.sleep(0.2)
-
-                paperdoll_xml = build_entity_packet(new_char, category="CharCreateUI")
-                buf = BitBuffer()
-                buf.write_utf_string(paperdoll_xml)
-                pd_payload = buf.to_bytes()
-                pd_pkt = struct.pack(">HH", 0x7C, len(pd_payload)) + pd_payload
+                # Send initial paper-doll (0x1A)
+                pd_payload = build_paperdoll_packet(char_dict)
+                pd_pkt = struct.pack(">HH", 0x1A, len(pd_payload)) + pd_payload
                 conn.sendall(pd_pkt)
-                print("Sent paperdoll update (0x7C):", pd_pkt.hex())
-                time.sleep(0.2)
+                print("Sent initial paper-doll (0x1A), length:", len(pd_payload))
+
+                #i just added this so the game will show a pop wich can be removed instead of getting stuck at (creating Character...)
+                PopUpError = struct.pack(">HH", 0x1B, 0)
+                conn.sendall(PopUpError)
+                print("Sent login to game load level (0x1F):", PopUpError.hex())
+            ###################################################################################
+            elif pkt_type == 0x19:
+                name = BitReader(data[4:]).read_string()
+                for char in characters:
+                    if char["name"] == name:
+                        payload = build_paperdoll_packet(char)  # use char, not new_char
+                        pkt = struct.pack(">HH", 0x1A, len(payload)) + payload
+                        conn.sendall(pkt)
+                        print("Sent paper-doll (0x1A), payload len:", len(payload))
+                        break
+                else:
+                    # character not found → still ack so the client doesn't hang
+                    conn.sendall(struct.pack(">HH", 0x1A, 0))
 
             elif pkt_type == 0x16:
-                print("Got character select packet (0x16).")
-                ack_pkt = struct.pack(">HH", 0x16, 0)
-                conn.sendall(ack_pkt)
-                print("Sent character select acknowledgment (0x16):", ack_pkt.hex())
-                time.sleep(0.2)
-                enter_packet = build_enter_game_packet()
-                conn.sendall(enter_packet)
-                print("Sent enter game packet (0x1A):", enter_packet.hex())
-                time.sleep(0.2)
-                init_pkt = build_game_init_packet()
-                conn.sendall(init_pkt)
-                print("Sent game init packet (0x1B):", init_pkt.hex())
-                time.sleep(0.2)
-
-            elif pkt_type == 0x19:
-                print("Got packet type 0x19. Request for character details.")
-                payload = data[4:]  # Skip 4-byte header (type + length)
+                payload = data[4:]
                 br = BitReader(payload)
-                try:
-                    name = br.read_string()
-                    print(f"Requested character: {name}")
-                    # Find character by name
-                    for char in characters:
-                        if char[0] == name:
-                            xml = build_entity_packet(char, category="Player")
-                            buf = BitBuffer()
-                            buf.write_utf_string(xml)
-                            pd_payload = buf.to_bytes()
-                            pd_pkt = struct.pack(">HH", 0x7C, len(pd_payload)) + pd_payload
-                            conn.sendall(pd_pkt)
-                            print("Sent paperdoll update (0x7C):", pd_pkt.hex())
-                            break
-                    else:
-                        print(f"Character '{name}' not found.")
-                        ack_pkt = struct.pack(">HH", 0x19, 0)
-                        conn.sendall(ack_pkt)
-                        print("Sent 0x19 ack:", ack_pkt.hex())
-                except Exception as e:
-                    print("Error parsing 0x19 packet:", e)
-                    ack_pkt = struct.pack(">HH", 0x19, 0)
-                    conn.sendall(ack_pkt)
-                    print("Sent 0x19 ack:", ack_pkt.hex())
-                time.sleep(0.2)
-
-            elif pkt_type == 0x7C:
-                print("Received packet type 0x7C. (Appearance/cue update)")
-                if characters:
-                    entity_xml = build_entity_packet(characters[0], category="Player")
-                    buf = BitBuffer()
-                    buf.write_utf_string(entity_xml)
-                    payload = buf.to_bytes()
-                    response = struct.pack(">HH", 0x7C, len(payload)) + payload
-                    conn.sendall(response)
-                    print("Sent entity packet (0x7C):", response.hex())
+                selected_name = br.read_string()
+                for char in characters:
+                    if char["name"] == selected_name:
+                        # Send ENTER_WORLD (transfer) packet
+                        transfer_packet = build_enter_world_packet(
+                            transfer_token=1,
+                            old_level_id=0,
+                            old_swf="",
+                            has_old_coord=False,
+                            old_x=0,
+                            old_y=0,
+                            old_flashvars="",
+                            user_id=1,
+                            new_level_swf="LevelsTut.swf/a_Level_TutorialBoat",
+                            new_map_lvl=1,
+                            new_base_lvl=1,
+                            new_internal="CraftTown",
+                            new_moment="Normal",
+                            new_alter="",
+                            new_is_inst=True
+                        )
+                        conn.sendall(transfer_packet)
+                        print("Sent TRANSFER_BEGIN (0x1C)")
+                        # Send WELCOME (0x10) packet (for now this will crash the game )
+                        #welcome_pkt = build_welcome_packet()
+                        #conn.sendall(welcome_pkt)
+                        #print("Sent WELCOME (0x10)")
+                        break
                 else:
-                    print("No character data available. Sending empty 0x7C response.")
-                    response = struct.pack(">HH", 0x7C, 0)
-                    conn.sendall(response)
-                    print("Sent 0x7C response:", response.hex())
-                time.sleep(0.2)
+                    print(f"Character {selected_name} not found in list")
 
     except Exception as e:
         print("Error:", e)
